@@ -152,12 +152,9 @@ emit(state.copyWith(data: result));
 
 ## 5. 总体架构
 
-轻量方案只需要两个组件：
+轻量方案只需要一个 mixin：
 
 ```text
-AppStateEmitter
-  -> 安全更新 state
-
 AppSafeNotifier
   -> 业务 mixin，暴露 emit / update / guard / isAlive
 ```
@@ -239,65 +236,29 @@ if (!isAlive) {
 
 ## 7. 实现代码骨架
 
-### 7.1 AppStateEmitter
-
-```dart
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-final class AppStateEmitter<StateT, ValueT> {
-  const AppStateEmitter({
-    required AnyNotifier<StateT, ValueT> notifier,
-    required bool Function() isMounted,
-  })  : _notifier = notifier,
-        _isMounted = isMounted;
-
-  final AnyNotifier<StateT, ValueT> _notifier;
-  final bool Function() _isMounted;
-
-  void emit(StateT value) {
-    if (!_isMounted()) {
-      return;
-    }
-
-    _notifier.state = value;
-  }
-
-  void update(StateT Function(StateT current) transform) {
-    if (!_isMounted()) {
-      return;
-    }
-
-    emit(transform(_notifier.state));
-  }
-}
-```
-
-### 7.2 AppSafeNotifier
-
 ```dart
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 mixin AppSafeNotifier<StateT, ValueT>
     on AnyNotifier<StateT, ValueT> {
-  AppStateEmitter<StateT, ValueT>? _emitter;
-
-  AppStateEmitter<StateT, ValueT> get _stateEmitter {
-    return _emitter ??= AppStateEmitter<StateT, ValueT>(
-      notifier: this,
-      isMounted: () => ref.mounted,
-    );
-  }
-
   bool get isAlive {
     return ref.mounted;
   }
 
   void emit(StateT value) {
-    _stateEmitter.emit(value);
+    if (!ref.mounted) {
+      return;
+    }
+
+    state = value;
   }
 
   void update(StateT Function(StateT current) transform) {
-    _stateEmitter.update(transform);
+    if (!ref.mounted) {
+      return;
+    }
+
+    state = transform(state);
   }
 
   Future<T?> guard<T>(
@@ -353,13 +314,13 @@ Controller 方法开始
   -> 检查 ref.mounted == true
   -> action 开始执行
   -> emit(loading: true)
-  -> AppStateEmitter.emit()
+  -> AppSafeNotifier.emit()
   -> provider 仍 mounted
   -> 执行 state = newState
   -> await someAsyncTask()
   -> 异步任务完成
   -> emit(data)
-  -> AppStateEmitter.emit()
+  -> AppSafeNotifier.emit()
   -> provider 仍 mounted
   -> 执行 state = newState
   -> action 完成
@@ -392,7 +353,7 @@ Controller 方法开始
   -> 异步任务完成
   -> action 继续执行
   -> emit(data)
-  -> AppStateEmitter.emit()
+  -> AppSafeNotifier.emit()
   -> ref.mounted == false
   -> 直接 return
   -> 不执行 state = newState
@@ -702,7 +663,6 @@ autoDispose。
 ## 15. 建议文件落点
 
 ```text
-lib/core/riverpod/app_state_emitter.dart
 lib/core/riverpod/app_safe_notifier.dart
 lib/core/riverpod/app_riverpod.dart
 ```
@@ -711,7 +671,6 @@ lib/core/riverpod/app_riverpod.dart
 
 ```dart
 export 'app_safe_notifier.dart';
-export 'app_state_emitter.dart';
 ```
 
 ## 16. 最终原则
